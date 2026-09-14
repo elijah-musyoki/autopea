@@ -7,6 +7,7 @@
 // asserts must stay regardless, since Photopea can silently no-op on stale
 // handles (see AGENT_HANDOFF.md).
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,6 +80,11 @@ type WideEvent = {
   duration_ms: number;
   outcome: "success" | "error";
   level: "info" | "error";
+  /** Environment characteristics for deployment correlation. */
+  service: string;
+  version: string;
+  commit: string;
+  region: string;
   args: { psd: string; photo: string; outPsd: string; outPng: string };
   photo_bytes?: number;
   output_psd_bytes?: number;
@@ -153,6 +159,20 @@ async function downloadActive(page: any, doc: any, optsExpr: string, timeoutMs: 
   return parts[Object.keys(parts)[0]] as Uint8Array;
 }
 
+function loadEnv(): { service: string; version: string; commit: string; region: string } {
+  let version = "unknown";
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf8")) as { version?: string };
+    if (pkg.version) version = pkg.version;
+  } catch { /* run from source without package metadata */ }
+  return {
+    service: "photo-replace",
+    version,
+    commit: process.env.GIT_COMMIT ?? "unknown",
+    region: process.env.REGION ?? "local",
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const runId = randomUUID();
@@ -163,6 +183,7 @@ async function main() {
     duration_ms: 0,
     outcome: "success",
     level: "info",
+    ...loadEnv(),
     args: { psd: args.psd, photo: args.photo, outPsd: args.outPsd, outPng: args.outPng },
     steps_ms: {},
     docs: {},
