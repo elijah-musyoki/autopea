@@ -56,7 +56,7 @@ function parseArgs(argv: string[]): Args {
     innerName: get("--inner-name", "Слой 1"),
     removeName: get("--remove-name", "Background"),
     watchdogMs: Number(get("--watchdog-ms", String(15 * 60_000))),
-    logDir: resolve(get("--log-dir", __dirname + "/logs")),
+    logDir: resolve(get("--log-dir", `${__dirname}/logs`)),
   };
 }
 
@@ -103,19 +103,7 @@ function logStep(runId: string, phase: "start" | "done" | "fail", step: StepName
   console.error(JSON.stringify({ kind: "step", run_id: runId, phase, step, ts: new Date().toISOString(), ...extra }));
 }
 
-async function writeProgress(logDir: string, runId: string, patch: Record<string, unknown>): Promise<void> {
-  try {
-    const p = resolve(logDir, `${runId}.progress.json`);
-    await mkdir(logDir, { recursive: true });
-    let prev: Record<string, unknown> = {};
-    try {
-      prev = JSON.parse(await readFile(p, "utf8")) as Record<string, unknown>;
-    } catch { /* first write */ }
-    await writeFile(p, `${JSON.stringify({ ...prev, ...patch, run_id: runId, updated_at: new Date().toISOString() }, null, 2)}\n`);
-  } catch { /* progress must never fail the run */ }
-}
-
-async function timed<T>(ctx: { runId: string; steps: WideEvent["steps_ms"]; logDir: string }, step: StepName, fn: () => Promise<T>): Promise<T> {
+async function timed<T>(ctx: { runId: string; steps: WideEvent["steps_ms"] }, step: StepName, fn: () => Promise<T>): Promise<T> {
   const start = Date.now();
   logStep(ctx.runId, "start", step);
   try {
@@ -188,7 +176,7 @@ async function main() {
     steps_ms: {},
     docs: {},
   };
-  const ctx = { runId, steps: event.steps_ms, logDir: args.logDir };
+  const ctx = { runId, steps: event.steps_ms };
   const docs: { parent?: string; outer?: string; inner?: string; photo?: string } = {};
   let browser: Browser | undefined;
   let page: Page | undefined;
