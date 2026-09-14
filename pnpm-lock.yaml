@@ -9,6 +9,9 @@ catalogs:
     async-mutex:
       specifier: ^0.5.0
       version: 0.5.0
+    fflate:
+      specifier: ^0.8.2
+      version: 0.8.2
     nanoevents:
       specifier: ^9.1.0
       version: 9.1.0
@@ -107,6 +110,9 @@ importers:
       autopea-playwright:
         specifier: workspace:*
         version: link:../autopea-playwright
+      fflate:
+        specifier: 'catalog:'
+        version: 0.8.2
       playwright:
         specifier: 'catalog:'
         version: 1.58.2

@@ -15,6 +15,7 @@
   "dependencies": {
     "autopea": "workspace:*",
     "autopea-playwright": "workspace:*",
+    "fflate": "catalog:",
     "playwright": "catalog:",
     "zod": "catalog:"
   },
