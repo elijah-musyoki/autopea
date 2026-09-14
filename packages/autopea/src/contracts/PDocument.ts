@@ -1,4 +1,5 @@
 import z from "zod"
+import type { DownloadDocumentOptions } from "@/capabilities/PhotopeaCapabilities"
 import { ArtLayers } from "./ArtLayer"
 import { ColorSamplers } from "./ColorSampler"
 import { Contract, ContractCollection } from "./Contract"
@@ -101,7 +102,8 @@ export class PDocument extends Contract {
     return this.$eval()`.rasterizeAllLayers()`
   }
   paste() {
-    return this.$eval()`.paste()`
+    // Photopea returns the pasted layer object (not void), so accept any value.
+    return this.$eval(z.unknown())`.paste()`
   }
   save() {
     return this.$eval()`.save()`
@@ -126,8 +128,11 @@ export class PDocument extends Contract {
    * @param document Optional PhotopeaHandle for a specific document. If omitted, uses the active document.
    * @returns Promise that resolves to a Uint8Array containing the saved file data.
    */
-  async saveToBuffer(format: SaveFormat): Promise<Uint8Array> {
-    return await this.capabilities.downloadDocument.call(this, format)
+  async saveToBuffer(
+    format: SaveFormat,
+    options?: DownloadDocumentOptions,
+  ): Promise<Uint8Array> {
+    return await this.capabilities.downloadDocument.call(this, format, options)
   }
 
   async makeBounds() {

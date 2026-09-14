@@ -1,5 +1,8 @@
 import { buffer } from "node:stream/consumers"
-import type { PhotopeaCapabilities } from "autopea"
+import type {
+  DownloadDocumentOptions,
+  PhotopeaCapabilities,
+} from "autopea"
 import {
   abortOnTimeout,
   invariant,
@@ -207,13 +210,19 @@ export const createPlaywrightCapabilities = (
       await this.save()
       await waiter
     },
-    async downloadDocument(this: PDocument, format: SaveFormat) {
+    async downloadDocument(
+      this: PDocument,
+      format: SaveFormat,
+      options?: DownloadDocumentOptions,
+    ) {
       return this.mutexes.downloadMutex.runExclusive(async () => {
-        const downloadPromise = page.waitForEvent("download")
+        const downloadPromise = page.waitForEvent("download", {
+          timeout: options?.downloadTimeout,
+        })
         await this.channel.evaluate<void>(
           `doc.saveAs(new File(""), ${saveFormatMap[format]})`,
           { doc: this },
-          { timeout: 10_000 },
+          { timeout: options?.evaluateTimeout ?? 10_000 },
         )
         const download = await downloadPromise
 

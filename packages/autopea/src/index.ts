@@ -1,5 +1,8 @@
 export { PhotopeaChannel } from "./Channel"
-export type { PhotopeaCapabilities } from "./capabilities/PhotopeaCapabilities"
+export type {
+  DownloadDocumentOptions,
+  PhotopeaCapabilities,
+} from "./capabilities/PhotopeaCapabilities"
 export * from "./channel-errors"
 export { SaveFormat } from "./contracts/PDocument"
 export * from "./helpers"
