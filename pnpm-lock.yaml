@@ -110,9 +110,6 @@ importers:
       autopea-playwright:
         specifier: workspace:*
         version: link:../autopea-playwright
-      fflate:
-        specifier: 'catalog:'
-        version: 0.8.2
       playwright:
         specifier: 'catalog:'
         version: 1.58.2

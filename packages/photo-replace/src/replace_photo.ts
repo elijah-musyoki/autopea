@@ -1,21 +1,13 @@
-// Interop note: autopea's Contract API is dynamically typed by design (remote
-// expressions evaluated in Photopea), so `any` casts below are the boundary
-// translation layer, not sloppy typing. Every dynamic result that matters is
-// re-verified at runtime (layer counts after paste, `saved` flags after save)
-// before the flow proceeds — that verification IS the boundary parsing here.
-// A future cleanup could introduce branded doc/layer handles; the runtime
-// asserts must stay regardless, since Photopea can silently no-op on stale
-// handles (see AGENT_HANDOFF.md).
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buffer } from "node:stream/consumers";
 import { chromium, type Browser, type Page } from "playwright";
 import { PhotopeaPage } from "autopea-playwright";
 import { App } from "autopea/contracts/App";
-import { unzipSync } from "fflate/node";
+import type { PDocument } from "autopea/contracts/PDocument";
+import { SaveFormat } from "autopea/contracts/PDocument";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -25,7 +17,7 @@ type Args = {
   outPsd: string;
   outPng: string;
   /** Nested group path to the smart-object layer, e.g. ["DL","Photo","Photo"]. */
-  layerPath: string[];
+  layerPath: [string, string, string];
   /** Name of the pixel layer inside the inner PSB (e.g. "Слой 1"). */
   innerName: string;
   /** Name of the old layer to remove after paste (e.g. "Background"). */
@@ -35,16 +27,12 @@ type Args = {
 };
 
 function parseArgs(argv: string[]): Args {
-  const get = (flag: string, fallback: string) => {
+  const get = (flag: string, fallback: string): string => {
     const i = argv.indexOf(flag);
     return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
   };
-  const multi = (flag: string, fallback: string[]): string[] => {
-    const i = argv.indexOf(flag);
-    return i >= 0 && argv[i + 1] ? argv[i + 1].split("/") : fallback;
-  };
-  const layerPath = multi("--layer-path", ["DL", "Photo", "Photo"]);
-  if (layerPath.length !== 3 || layerPath.some((s) => s.length === 0)) {
+  const rawPath = get("--layer-path", "DL/Photo/Photo").split("/");
+  if (rawPath.length !== 3 || rawPath.some((s) => s.length === 0)) {
     throw new Error("--layer-path must be top/group/leaf (e.g. DL/Photo/Photo)");
   }
   return {
@@ -52,7 +40,7 @@ function parseArgs(argv: string[]): Args {
     photo: resolve(get("--photo", "/home/elijah/Projects/psd-dissection-lab/workspace/test_replacement_1203x1466.png")),
     outPsd: resolve(get("--out-psd", "/home/elijah/Projects/psd-dissection-lab/workspace/working_replaced_final.psd")),
     outPng: resolve(get("--out-png", "/home/elijah/Projects/psd-dissection-lab/workspace/working_replaced_final.png")),
-    layerPath,
+    layerPath: [rawPath[0], rawPath[1], rawPath[2]],
     innerName: get("--inner-name", "Слой 1"),
     removeName: get("--remove-name", "Background"),
     watchdogMs: Number(get("--watchdog-ms", String(15 * 60_000))),
@@ -103,6 +91,11 @@ function logStep(runId: string, phase: "start" | "done" | "fail", step: StepName
   console.error(JSON.stringify({ kind: "step", run_id: runId, phase, step, ts: new Date().toISOString(), ...extra }));
 }
 
+function need(value: string | undefined, what: string): string {
+  if (value === undefined || value.length === 0) throw new Error(`missing ${what}`);
+  return value;
+}
+
 async function timed<T>(ctx: { runId: string; steps: WideEvent["steps_ms"] }, step: StepName, fn: () => Promise<T>): Promise<T> {
   const start = Date.now();
   logStep(ctx.runId, "start", step);
@@ -118,35 +111,6 @@ async function timed<T>(ctx: { runId: string; steps: WideEvent["steps_ms"] }, st
   }
 }
 
-function need(value: string | undefined, what: string): string {
-  if (value === undefined || value.length === 0) throw new Error(`missing ${what}`);
-  return value;
-}
-
-async function docByName(app: any, name: string) {
-  const n = await app.documents.length.$get();
-  for (let i = 0; i < n; i++) {
-    const d = app.documents.get(i);
-    if ((await d.name.$get()) === name) return await d.$ref();
-  }
-  throw new Error(`doc not found: ${name}`);
-}
-
-async function downloadActive(page: any, doc: any, optsExpr: string, timeoutMs: number): Promise<Uint8Array> {
-  const dlPromise = (page as any).page.waitForEvent("download", { timeout: timeoutMs });
-  await (doc as any).channel.evaluate(
-    `app.activeDocument.saveAs(new File(""), ${optsExpr})`,
-    {},
-    { timeout: timeoutMs },
-  );
-  const dl = await dlPromise;
-  const stream = await (dl as any).createReadStream();
-  const zip = await buffer(stream);
-  try { (stream as any).destroy(); } catch { /* ignore */ }
-  const parts = unzipSync(new Uint8Array(zip));
-  return parts[Object.keys(parts)[0]] as Uint8Array;
-}
-
 function loadEnv(): { service: string; version: string; commit: string; region: string } {
   let version = "unknown";
   try {
@@ -159,6 +123,21 @@ function loadEnv(): { service: string; version: string; commit: string; region: 
     commit: process.env.GIT_COMMIT ?? "unknown",
     region: process.env.REGION ?? "local",
   };
+}
+
+/**
+ * Find an open document tab by name and pin it with a fresh handle.
+ *
+ * Fresh handles are required after any `openFile`, which invalidates prior
+ * `__ppHandle` refs and makes `save()` silently no-op on them.
+ */
+async function docByName(app: App, name: string): Promise<PDocument> {
+  const n = await app.documents.length.$get();
+  for (let i = 0; i < n; i++) {
+    const d = app.documents.get(i);
+    if ((await d.name.$get()) === name) return await d.$ref();
+  }
+  throw new Error(`doc not found: ${name}`);
 }
 
 async function main() {
@@ -219,10 +198,10 @@ async function main() {
     });
 
     currentStep = "open_smart_objects";
-    const outerDoc: any = await timed(ctx, "open_smart_objects", () => (photoLayer as any).openSmartObject());
+    const outerDoc = await timed(ctx, "open_smart_objects", () => photoLayer.openSmartObject());
     docs.outer = await outerDoc.name.$get();
-    const innerLayer = (outerDoc as any).artLayers.getByName(args.innerName);
-    const innerDoc: any = await (innerLayer as any).openSmartObject();
+    const innerLayer = outerDoc.artLayers.getByName(args.innerName);
+    const innerDoc = await innerLayer.openSmartObject();
     docs.inner = await innerDoc.name.$get();
 
     // openFile, never openFromBuffer (blankMessage hang in this setup).
@@ -232,29 +211,27 @@ async function main() {
 
     currentStep = "copy_photo";
     await timed(ctx, "copy_photo", async () => {
-      await app.activeDocument.$set(await pngDoc.$ref() as any);
-      await (app.activeDocument as any).$eval()`.selection.selectAll()`;
-      await (app.activeDocument as any).$eval()`.selection.copy()`;
+      await app.activateDocument(await pngDoc.$ref());
+      const active = app.activeDocument;
+      await active.selectAll();
+      await active.copySelection();
     });
 
-    // Re-resolve handles fresh: any openFile invalidates prior __ppHandle refs,
-    // making save()/paste() silently no-op on them. Paste via handle-free
-    // executeAction (PDocument.paste() also mis-reports success as a Zod error).
     currentStep = "paste_into_inner";
     await timed(ctx, "paste_into_inner", async () => {
-      const innerFresh = await docByName(app, need(docs.inner, "doc tab name"));
-      await app.activeDocument.$set(innerFresh as any);
-      await (app.activeDocument as any).$eval({ absolute: true })`executeAction(stringIDToTypeID("paste"), undefined, DialogModes.NO)`;
-      const n = await (innerFresh as any).artLayers.length.$get();
+      const innerFresh = await docByName(app, need(docs.inner, "inner doc tab name"));
+      await app.activateDocument(innerFresh);
+      await app.paste();
+      const n = await innerFresh.artLayers.length.$get();
       if (n < 2) throw new Error(`paste produced no new layer (artLayers=${n})`);
     });
 
     currentStep = "remove_old";
     await timed(ctx, "remove_old", async () => {
-      const innerFresh = await docByName(app, need(docs.inner, "doc tab name"));
-      const n = await (innerFresh as any).artLayers.length.$get();
+      const innerFresh = await docByName(app, need(docs.inner, "inner doc tab name"));
+      const n = await innerFresh.artLayers.length.$get();
       for (let i = 0; i < n; i++) {
-        const l = (innerFresh as any).artLayers.get(i);
+        const l = innerFresh.artLayers.get(i);
         if ((await l.name.$get()) === args.removeName) {
           await l.remove();
           return;
@@ -265,34 +242,44 @@ async function main() {
 
     currentStep = "fit_and_save_chain";
     await timed(ctx, "fit_and_save_chain", async () => {
-      const innerFresh = await docByName(app, need(docs.inner, "doc tab name"));
-      await app.activeDocument.$set(innerFresh as any);
-      await (innerFresh as any).artLayers.get(0).fitToBounds({ grow: true });
-      await (innerFresh as any).save();
-      if (!(await (innerFresh as any).saved.$get())) throw new Error("inner save did not stick (stale handle?)");
-      try { await (innerFresh as any).saveSmartObject(); } catch (e) { console.error(JSON.stringify({ kind: "warn", note: "inner_saveSmartObject", error: String(e).slice(0, 200) })); }
+      const innerFresh = await docByName(app, need(docs.inner, "inner doc tab name"));
+      await app.activateDocument(innerFresh);
+      await innerFresh.artLayers.get(0).fitToBounds({ grow: true });
+      await innerFresh.save();
+      if (!(await innerFresh.saved.$get())) throw new Error("inner save did not stick (stale handle?)");
+      try {
+        await innerFresh.saveSmartObject();
+      } catch (e) {
+        console.error(JSON.stringify({ kind: "warn", note: "inner_saveSmartObject", error: String(e).slice(0, 200) }));
+      }
       await pngDoc.close("DONOTSAVECHANGES").catch(() => undefined);
 
-      const outerFresh = await docByName(app, need(docs.outer, "doc tab name"));
-      await app.activeDocument.$set(outerFresh as any);
-      await (outerFresh as any).save();
-      if (!(await (outerFresh as any).saved.$get())) throw new Error("outer save did not stick (stale handle?)");
-      try { await (outerFresh as any).saveSmartObject(); } catch (e) { console.error(JSON.stringify({ kind: "warn", note: "outer_saveSmartObject", error: String(e).slice(0, 200) })); }
+      const outerFresh = await docByName(app, need(docs.outer, "outer doc tab name"));
+      await app.activateDocument(outerFresh);
+      await outerFresh.save();
+      if (!(await outerFresh.saved.$get())) throw new Error("outer save did not stick (stale handle?)");
+      try {
+        await outerFresh.saveSmartObject();
+      } catch (e) {
+        console.error(JSON.stringify({ kind: "warn", note: "outer_saveSmartObject", error: String(e).slice(0, 200) }));
+      }
 
-      const workingFresh = await docByName(app, need(docs.parent, "doc tab name"));
-      await app.activeDocument.$set(workingFresh as any);
+      const workingFresh = await docByName(app, need(docs.parent, "working doc tab name"));
+      await app.activateDocument(workingFresh);
     });
 
-    // Long timeouts: library downloadDocument hardcodes 10s evaluate, which
-    // cannot export a 370MB document. Our fork accepts DownloadDocumentOptions;
-    // this path inlines the same logic with explicit budgets.
+    // Long budgets: the 10s library default cannot export a 370MB document.
     currentStep = "export_png";
-    const pngBytes = await timed(ctx, "export_png", () => downloadActive(photopeaPage, app.activeDocument, "new PNGSaveOptions()", 300_000));
+    const pngBytes = await timed(ctx, "export_png", () =>
+      app.activeDocument.saveToBuffer(SaveFormat.PNG, { evaluateTimeout: 300_000, downloadTimeout: 300_000 }),
+    );
     await writeFile(args.outPng, pngBytes);
     event.output_png_bytes = pngBytes.byteLength;
 
     currentStep = "export_psd";
-    const psdBytes = await timed(ctx, "export_psd", () => downloadActive(photopeaPage, app.activeDocument, "new PhotoshopSaveOptions()", 420_000));
+    const psdBytes = await timed(ctx, "export_psd", () =>
+      app.activeDocument.saveToBuffer(SaveFormat.PSD, { evaluateTimeout: 420_000, downloadTimeout: 420_000 }),
+    );
     await writeFile(args.outPsd, psdBytes);
     event.output_psd_bytes = psdBytes.byteLength;
   } catch (err) {

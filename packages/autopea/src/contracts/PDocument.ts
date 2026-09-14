@@ -105,6 +105,22 @@ export class PDocument extends Contract {
     // Photopea returns the pasted layer object (not void), so accept any value.
     return this.$eval(z.unknown())`.paste()`
   }
+  /**
+   * Select the entire canvas of this document.
+   *
+   * Wraps `document.selection.selectAll()` so callers don't need raw scripts.
+   */
+  selectAll() {
+    return this.$eval()`.selection.selectAll()`
+  }
+  /**
+   * Copy the current selection to the clipboard.
+   *
+   * Pair with {@link App.paste} to move pixels between documents.
+   */
+  copySelection() {
+    return this.$eval()`.selection.copy()`
+  }
   save() {
     return this.$eval()`.save()`
   }
