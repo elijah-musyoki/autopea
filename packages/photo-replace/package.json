@@ -1,0 +1,21 @@
+{
+  "name": "photo-replace",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Production photo replacement for PSD smart objects (our fork workflow)",
+  "type": "module",
+  "scripts": {
+    "replace": "bun run src/replace_photo.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "autopea": "workspace:*",
+    "autopea-playwright": "workspace:*",
+    "fflate": "catalog:",
+    "playwright": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "catalog:"
+  }
+}

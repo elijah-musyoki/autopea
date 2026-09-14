@@ -102,6 +102,28 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
 
+  packages/photo-replace:
+    dependencies:
+      autopea:
+        specifier: workspace:*
+        version: link:../autopea
+      autopea-playwright:
+        specifier: workspace:*
+        version: link:../autopea-playwright
+      fflate:
+        specifier: 'catalog:'
+        version: 0.8.2
+      playwright:
+        specifier: 'catalog:'
+        version: 1.58.2
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+
   packages/tests:
     dependencies:
       autopea:
