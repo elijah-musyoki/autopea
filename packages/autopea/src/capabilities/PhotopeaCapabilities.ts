@@ -4,6 +4,7 @@ import type { Contract } from "@/contracts/Contract"
 import type { PDocument, SaveFormat } from "@/contracts/PDocument"
 import type { PhotopeaMutexes } from "@/PhotopeaMutexes"
 
+/** Timeouts for exporting a document through the browser download flow. */
 export interface DownloadDocumentOptions {
   /** Timeout (ms) for the export script evaluation. Defaults to 10_000. */
   evaluateTimeout?: number

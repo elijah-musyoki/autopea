@@ -1,3 +1,11 @@
+// Interop note: autopea's Contract API is dynamically typed by design (remote
+// expressions evaluated in Photopea), so `any` casts below are the boundary
+// translation layer, not sloppy typing. Every dynamic result that matters is
+// re-verified at runtime (layer counts after paste, `saved` flags after save)
+// before the flow proceeds — that verification IS the boundary parsing here.
+// A future cleanup could introduce branded doc/layer handles; the runtime
+// asserts must stay regardless, since Photopea can silently no-op on stale
+// handles (see AGENT_HANDOFF.md).
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -34,12 +42,16 @@ function parseArgs(argv: string[]): Args {
     const i = argv.indexOf(flag);
     return i >= 0 && argv[i + 1] ? argv[i + 1].split("/") : fallback;
   };
+  const layerPath = multi("--layer-path", ["DL", "Photo", "Photo"]);
+  if (layerPath.length !== 3 || layerPath.some((s) => s.length === 0)) {
+    throw new Error("--layer-path must be top/group/leaf (e.g. DL/Photo/Photo)");
+  }
   return {
     psd: resolve(get("--psd", "/home/elijah/Projects/psd-dissection-lab/workspace/working.psd")),
     photo: resolve(get("--photo", "/home/elijah/Projects/psd-dissection-lab/workspace/test_replacement_1203x1466.png")),
     outPsd: resolve(get("--out-psd", "/home/elijah/Projects/psd-dissection-lab/workspace/working_replaced_final.psd")),
     outPng: resolve(get("--out-png", "/home/elijah/Projects/psd-dissection-lab/workspace/working_replaced_final.png")),
-    layerPath: multi("--layer-path", ["DL", "Photo", "Photo"]),
+    layerPath,
     innerName: get("--inner-name", "Слой 1"),
     removeName: get("--remove-name", "Background"),
     watchdogMs: Number(get("--watchdog-ms", String(15 * 60_000))),
@@ -112,6 +124,11 @@ async function timed<T>(ctx: { runId: string; steps: WideEvent["steps_ms"]; logD
   }
 }
 
+function need(value: string | undefined, what: string): string {
+  if (value === undefined || value.length === 0) throw new Error(`missing ${what}`);
+  return value;
+}
+
 async function docByName(app: any, name: string) {
   const n = await app.documents.length.$get();
   for (let i = 0; i < n; i++) {
@@ -151,6 +168,7 @@ async function main() {
     docs: {},
   };
   const ctx = { runId, steps: event.steps_ms, logDir: args.logDir };
+  const docs: { parent?: string; outer?: string; inner?: string; photo?: string } = {};
   let browser: Browser | undefined;
   let page: Page | undefined;
   let currentStep: StepName | "unknown" = "unknown";
@@ -179,7 +197,7 @@ async function main() {
 
     currentStep = "open_psd";
     const doc = await timed(ctx, "open_psd", () => app.openFile(args.psd, 5 * 60 * 1000));
-    event.docs!.parent = await doc.name.$get();
+    docs.parent = await doc.name.$get();
 
     // Nested traversal: layerSets... layerSets... artLayers (Florida DL layout).
     // getByName builds a lazy expression — nothing executes until $get/$set.
@@ -193,15 +211,15 @@ async function main() {
 
     currentStep = "open_smart_objects";
     const outerDoc: any = await timed(ctx, "open_smart_objects", () => (photoLayer as any).openSmartObject());
-    event.docs!.outer = await outerDoc.name.$get();
+    docs.outer = await outerDoc.name.$get();
     const innerLayer = (outerDoc as any).artLayers.getByName(args.innerName);
     const innerDoc: any = await (innerLayer as any).openSmartObject();
-    event.docs!.inner = await innerDoc.name.$get();
+    docs.inner = await innerDoc.name.$get();
 
     // openFile, never openFromBuffer (blankMessage hang in this setup).
     currentStep = "open_photo";
     const pngDoc = await timed(ctx, "open_photo", () => app.openFile(args.photo, 60_000));
-    event.docs!.photo = await pngDoc.name.$get();
+    docs.photo = await pngDoc.name.$get();
 
     currentStep = "copy_photo";
     await timed(ctx, "copy_photo", async () => {
@@ -215,7 +233,7 @@ async function main() {
     // executeAction (PDocument.paste() also mis-reports success as a Zod error).
     currentStep = "paste_into_inner";
     await timed(ctx, "paste_into_inner", async () => {
-      const innerFresh = await docByName(app, event.docs!.inner!);
+      const innerFresh = await docByName(app, need(docs.inner, "doc tab name"));
       await app.activeDocument.$set(innerFresh as any);
       await (app.activeDocument as any).$eval({ absolute: true })`executeAction(stringIDToTypeID("paste"), undefined, DialogModes.NO)`;
       const n = await (innerFresh as any).artLayers.length.$get();
@@ -224,7 +242,7 @@ async function main() {
 
     currentStep = "remove_old";
     await timed(ctx, "remove_old", async () => {
-      const innerFresh = await docByName(app, event.docs!.inner!);
+      const innerFresh = await docByName(app, need(docs.inner, "doc tab name"));
       const n = await (innerFresh as any).artLayers.length.$get();
       for (let i = 0; i < n; i++) {
         const l = (innerFresh as any).artLayers.get(i);
@@ -238,7 +256,7 @@ async function main() {
 
     currentStep = "fit_and_save_chain";
     await timed(ctx, "fit_and_save_chain", async () => {
-      const innerFresh = await docByName(app, event.docs!.inner!);
+      const innerFresh = await docByName(app, need(docs.inner, "doc tab name"));
       await app.activeDocument.$set(innerFresh as any);
       await (innerFresh as any).artLayers.get(0).fitToBounds({ grow: true });
       await (innerFresh as any).save();
@@ -246,13 +264,13 @@ async function main() {
       try { await (innerFresh as any).saveSmartObject(); } catch (e) { console.error(JSON.stringify({ kind: "warn", note: "inner_saveSmartObject", error: String(e).slice(0, 200) })); }
       await pngDoc.close("DONOTSAVECHANGES").catch(() => undefined);
 
-      const outerFresh = await docByName(app, event.docs!.outer!);
+      const outerFresh = await docByName(app, need(docs.outer, "doc tab name"));
       await app.activeDocument.$set(outerFresh as any);
       await (outerFresh as any).save();
       if (!(await (outerFresh as any).saved.$get())) throw new Error("outer save did not stick (stale handle?)");
       try { await (outerFresh as any).saveSmartObject(); } catch (e) { console.error(JSON.stringify({ kind: "warn", note: "outer_saveSmartObject", error: String(e).slice(0, 200) })); }
 
-      const workingFresh = await docByName(app, event.docs!.parent!);
+      const workingFresh = await docByName(app, need(docs.parent, "doc tab name"));
       await app.activeDocument.$set(workingFresh as any);
     });
 
@@ -282,6 +300,7 @@ async function main() {
       } catch { /* keep original error */ }
     }
   } finally {
+    event.docs = docs;
     event.duration_ms = Date.now() - started;
     event.ts = new Date().toISOString();
     try {
