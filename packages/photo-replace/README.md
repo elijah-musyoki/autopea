@@ -17,6 +17,12 @@ DISPLAY=:0 bun run src/replace_photo.ts \
 Defaults target the Florida DL workspace file. For a different nesting, pass
 `--layer-path DL/Photo/Photo --inner-name "Слой 1" --remove-name Background`.
 
+Reruns: after a first swap the inner layer is named `Layer 1`, so reruns
+need `--inner-name "Layer 1" --remove-name "Layer 1"`.
+
+Milestone source: single no-wall imC portrait, see photo-prep `PLAN.md`
+(decision log 2026-09-15) and `workspace/grained-master/` keepers.
+
 Stdout carries one JSON wide-event per run; human step lines go to stderr.
 Per-run JSON + progress land in `src/logs/`.
 
