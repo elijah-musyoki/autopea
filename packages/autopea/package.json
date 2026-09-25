@@ -1,6 +1,6 @@
 {
   "name": "autopea",
-  "version": "3.3.10",
+  "version": "3.3.11",
   "description": "Library for automating Photopea",
   "type": "module",
   "scripts": {

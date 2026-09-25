@@ -1,6 +1,6 @@
 {
   "name": "autopea-playwright",
-  "version": "3.3.10",
+  "version": "3.3.11",
   "description": "Playwright transport for autopea",
   "type": "module",
   "scripts": {
