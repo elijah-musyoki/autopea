@@ -204,7 +204,10 @@ export class PhotopeaPage implements PhotopeaTransport {
     )
 
     this.page.on("console", (msg) => {
-      if (msg.text() !== "Failed to load resource: net::ERR_FAILED") return
+      // Ignore network noise (e.g. blocked/missing subresources in offline
+      // mode surface as "Failed to load resource: net::ERR_*"). These must
+      // not abort script evaluation via "pageerror".
+      if (msg.text().startsWith("Failed to load resource:")) return
       if (msg.type() === "error" || msg.text().includes("Error")) {
         this.emit("pageerror", new Error(msg.text()))
       }
