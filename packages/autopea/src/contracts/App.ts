@@ -125,6 +125,28 @@ export class App extends Contract {
     return await this.capabilities.pause.call(this)
   }
 
+  /**
+   * Make the given document the active document.
+   *
+   * Typed wrapper around `activeDocument.$set` for switching between open
+   * documents (e.g. copy from one, paste into another). Re-resolve the
+   * target with `$ref()` after any `openFile`, which invalidates handles.
+   */
+  async activateDocument(doc: PDocument) {
+    return await this.activeDocument.$set(doc)
+  }
+
+  /**
+   * Paste the clipboard into the active document via `executeAction`.
+   *
+   * Prefer this over `PDocument.paste()`: the handle form throws inside
+   * smart-object edit sessions, while the action form operates on whichever
+   * document is active. Returns whatever Photopea yields (a layer object).
+   */
+  async paste() {
+    return await this.$eval(z.unknown(), { absolute: true })`executeAction(stringIDToTypeID("paste"), undefined, DialogModes.NO)`
+  }
+
   async hasOpenDocument(): Promise<boolean> {
     return await this.channel.evaluate<boolean>(
       "return app.documents.length > 0",
